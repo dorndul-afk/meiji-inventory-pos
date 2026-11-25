@@ -1,2 +1,418 @@
-https://script.google.com/macros/s/AKfycbzlLK9L8mGA-G5q-47N39Ip9SdZ8cbp24SDiSvXTtfSKeqxouiOq8elFej71nArPdAy/exec
-https://script.google.com/macros/s/AKfycbwngMGIuY4-MCS1yNML6_0UvZh8bgsQ8FVek-xMVrUfTq5tqKiCRKOaWdOwoyRZCYU/exec
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Meiji Inventory KSC-POS</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- SweetAlert2 -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <!-- HTML5 QRCode / Barcode Scanner -->
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <!-- Font Prompt -->
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Prompt', sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen pb-24 lg:pb-8">
+
+  <!-- Header -->
+  <header class="bg-white shadow-sm sticky top-0 z-30">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
+      <div>
+        <h1 class="text-lg font-bold text-slate-900 leading-tight">Meiji KSC-POS</h1>
+        <p class="text-xs text-slate-500">ระบบขายหน้าร้าน & จัดการสต็อก</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="loadProducts()" class="px-3 py-2 text-xs font-medium bg-slate-100 hover:bg-slate-200 rounded-lg transition">
+          🔄 รีเฟรชสต็อก
+        </button>
+        <button id="btnToggleScan" onclick="toggleScanner()" class="px-3 py-2 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm transition">
+          📷 สแกนบาร์โค้ด
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+    <!-- ฝั่งซ้าย: สแกนเนอร์ + ค้นหา + รายการสินค้า -->
+    <section class="lg:col-span-7 space-y-4">
+
+      <!-- พื้นที่กล้องสแกนบาร์โค้ด -->
+      <div id="scannerContainer" class="hidden bg-white p-3 rounded-xl shadow-sm border border-blue-200">
+        <div class="flex justify-between items-center mb-2">
+          <span class="text-sm font-semibold text-blue-700">📷 กำลังเปิดกล้องสแกนบาร์โค้ด SKU</span>
+          <button onclick="stopScanner()" class="text-xs px-2 py-1 bg-red-100 text-red-600 rounded-md hover:bg-red-200">ปิดกล้อง</button>
+        </div>
+        <div id="reader" class="w-full rounded-lg overflow-hidden"></div>
+      </div>
+
+      <!-- ช่องค้นหา / ยิงบาร์โค้ดด้วยเครื่องสแกน -->
+      <div class="bg-white p-3 rounded-xl shadow-sm flex gap-2">
+        <input
+          id="searchInput"
+          type="text"
+          placeholder="ค้นหาชื่อสินค้า หรือยิงรหัส SKU แล้วกด Enter..."
+          class="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          oninput="renderProducts()"
+          onkeydown="handleSearchEnter(event)"
+        />
+        <button onclick="clearSearch()" class="px-3 py-2 text-xs bg-slate-100 hover:bg-slate-200 rounded-lg">ล้าง</button>
+      </div>
+
+      <!-- รายการสินค้า -->
+      <div id="productGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div class="col-span-full text-center py-10 text-slate-400 text-sm">กำลังโหลดข้อมูลสินค้า...</div>
+      </div>
+    </section>
+
+    <!-- ฝั่งขวา: โหมดขายออก/รับเข้า + ตะกร้าสินค้า -->
+    <section class="lg:col-span-5">
+      <div class="bg-white rounded-xl shadow-sm p-4 sticky top-20 space-y-4">
+
+        <!-- สวิตช์สลับโหมด ขายออก / รับเข้า -->
+        <div class="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
+          <button id="modeSellBtn" onclick="setMode('ขายออก')" class="py-2.5 text-sm font-semibold rounded-lg transition bg-emerald-600 text-white shadow-sm">
+            🛒 ขายออก (ตัดสต็อก)
+          </button>
+          <button id="modeRestockBtn" onclick="setMode('รับเข้า')" class="py-2.5 text-sm font-semibold rounded-lg transition text-slate-600 hover:bg-slate-200">
+            📦 รับเข้า (เพิ่มสต็อก)
+          </button>
+        </div>
+
+        <!-- รายการในตะกร้า -->
+        <div>
+          <div class="flex justify-between items-center mb-2">
+            <h2 class="text-sm font-bold text-slate-700">รายการที่เลือก (<span id="cartCount">0</span>)</h2>
+            <button onclick="clearCart()" class="text-xs text-red-500 hover:underline">ล้างตะกร้า</button>
+          </div>
+          <div id="cartList" class="divide-y divide-slate-100 max-h-72 overflow-y-auto pr-1">
+            <p class="text-center text-xs text-slate-400 py-8">ยังไม่มีสินค้าในตะกร้า</p>
+          </div>
+        </div>
+
+        <!-- ชื่อลูกค้า / หมายเหตุ -->
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">ชื่อลูกค้า / หมายเหตุ</label>
+          <input
+            id="noteInput"
+            type="text"
+            placeholder="เช่น ลูกค้าหน้าร้าน, รับของรอบเช้า..."
+            class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        <!-- สรุปยอดและปุ่มบันทึก -->
+        <div class="border-t border-slate-200 pt-3 space-y-3">
+          <div class="flex justify-between items-center">
+            <span class="text-sm text-slate-600">ยอดรวมทั้งหมด</span>
+            <span id="cartTotal" class="text-xl font-bold text-slate-900">0.00 ฿</span>
+          </div>
+          <button
+            id="submitBtn"
+            onclick="submitTransaction()"
+            class="w-full py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-md transition disabled:opacity-50"
+          >
+            ยืนยันการขายออก
+          </button>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    // =========================================================================
+    // ตั้งค่า API URL จาก Google Apps Script (ลงท้ายด้วย /exec)
+    // =========================================================================
+    const API_URL = 'https://script.google.com/macros/s/AKfycbwQTPWqzcxEXZYbJ0wa1OiKOpAhc9ulHoiEplBXOdbRWswoWHixId1qMP94wZvwfLbt/exec';
+
+    let products = [];
+    let cart = []; // [{ sku, product_name, price, stock, qty }]
+    let currentMode = 'ขายออก'; // 'ขายออก' หรือ 'รับเข้า'
+    let html5QrCode = null;
+    let isScanning = false;
+    let lastScanTime = 0;
+
+    // โหลดสินค้าทันทีเมื่อเปิดหน้าเว็บ
+    window.addEventListener('DOMContentLoaded', () => {
+      loadProducts();
+    });
+
+    // ดึงข้อมูลสินค้าจาก Google Sheets
+    async function loadProducts() {
+      if (API_URL.includes('วาง_WEB_APP_URL')) {
+        document.getElementById('productGrid').innerHTML = `
+          <div class="col-span-full bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-sm">
+            กรุณานำ <b>Web App URL</b> จาก Google Apps Script มาใส่ในตัวแปร <code>API_URL</code> ในไฟล์ <code>index.html</code> ก่อนใช้งานครับ
+          </div>`;
+        return;
+      }
+
+      document.getElementById('productGrid').innerHTML =
+        '<div class="col-span-full text-center py-10 text-slate-400 text-sm">กำลังโหลดข้อมูลสินค้า...</div>';
+
+      try {
+        const res = await fetch(API_URL);
+        const json = await res.json();
+        if (json.status === 'success') {
+          products = json.data || [];
+          renderProducts();
+        } else {
+          throw new Error(json.message || 'โหลดข้อมูลไม่สำเร็จ');
+        }
+      } catch (err) {
+        Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถดึงข้อมูลสินค้าได้: ' + err.message, 'error');
+      }
+    }
+
+    // แสดงการ์ดสินค้า
+    function renderProducts() {
+      const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
+      const filtered = products.filter(p =>
+        p.product_name.toLowerCase().includes(keyword) ||
+        p.sku.toLowerCase().includes(keyword)
+      );
+
+      const grid = document.getElementById('productGrid');
+      if (filtered.length === 0) {
+        grid.innerHTML = '<div class="col-span-full text-center py-10 text-slate-400 text-sm">ไม่พบสินค้าที่ค้นหา</div>';
+        return;
+      }
+
+      grid.innerHTML = filtered.map(p => {
+        const stockBadge = p.stock <= 5
+          ? 'bg-red-100 text-red-700'
+          : 'bg-emerald-100 text-emerald-700';
+        const imgHtml = p.image
+          ? `<img src="${p.image}" alt="${p.product_name}" class="w-full h-28 object-cover rounded-lg mb-2 bg-slate-100" onerror="this.style.display='none'">`
+          : `<div class="w-full h-24 rounded-lg mb-2 bg-slate-100 flex items-center justify-center text-slate-400 text-xs">ไม่มีรูปภาพ</div>`;
+
+        return `
+          <div onclick="addToCart('${p.sku}')" class="bg-white p-3 rounded-xl shadow-sm border border-transparent hover:border-blue-400 cursor-pointer transition flex flex-col justify-between active:scale-95">
+            <div>
+              ${imgHtml}
+              <div class="text-xs text-slate-400 font-mono truncate">${p.sku}</div>
+              <div class="text-sm font-semibold text-slate-800 line-clamp-2 mt-0.5">${p.product_name}</div>
+            </div>
+            <div class="flex items-center justify-between mt-3 pt-2 border-t border-slate-100">
+              <span class="text-sm font-bold text-blue-600">${p.price.toLocaleString()} ฿</span>
+              <span class="text-[11px] px-2 py-0.5 rounded-full font-medium ${stockBadge}">คงเหลือ ${p.stock}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // กด Enter ในช่องค้นหาเพื่อเพิ่มสินค้าที่ตรง SKU ทันที
+    function handleSearchEnter(e) {
+      if (e.key === 'Enter') {
+        const val = e.target.value.trim();
+        const exact = products.find(p => p.sku === val);
+        if (exact) {
+          addToCart(exact.sku);
+          e.target.value = '';
+          renderProducts();
+        }
+      }
+    }
+
+    function clearSearch() {
+      document.getElementById('searchInput').value = '';
+      renderProducts();
+    }
+
+    // สลับโหมด ขายออก / รับเข้า
+    function setMode(mode) {
+      currentMode = mode;
+      const sellBtn = document.getElementById('modeSellBtn');
+      const restockBtn = document.getElementById('modeRestockBtn');
+      const submitBtn = document.getElementById('submitBtn');
+
+      if (mode === 'ขายออก') {
+        sellBtn.className = 'py-2.5 text-sm font-semibold rounded-lg transition bg-emerald-600 text-white shadow-sm';
+        restockBtn.className = 'py-2.5 text-sm font-semibold rounded-lg transition text-slate-600 hover:bg-slate-200';
+        submitBtn.className = 'w-full py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-md transition';
+        submitBtn.textContent = 'ยืนยันการขายออก';
+      } else {
+        sellBtn.className = 'py-2.5 text-sm font-semibold rounded-lg transition text-slate-600 hover:bg-slate-200';
+        restockBtn.className = 'py-2.5 text-sm font-semibold rounded-lg transition bg-indigo-600 text-white shadow-sm';
+        submitBtn.className = 'w-full py-3 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition';
+        submitBtn.textContent = 'ยืนยันการรับสินค้าเข้า';
+      }
+    }
+
+    // เพิ่มสินค้าลงตะกร้า
+    function addToCart(sku) {
+      const product = products.find(p => p.sku === sku);
+      if (!product) {
+        Swal.fire({ icon: 'warning', title: 'ไม่พบสินค้า', text: `ไม่พบรหัส SKU: ${sku} ในระบบ`, timer: 1800, showConfirmButton: false });
+        return;
+      }
+
+      const existing = cart.find(item => item.sku === sku);
+      if (existing) {
+        existing.qty += 1;
+      } else {
+        cart.push({ ...product, qty: 1 });
+      }
+      renderCart();
+    }
+
+    // ปรับจำนวนสินค้าในตะกร้า
+    function updateQty(sku, delta) {
+      const item = cart.find(i => i.sku === sku);
+      if (!item) return;
+      item.qty += delta;
+      if (item.qty <= 0) {
+        cart = cart.filter(i => i.sku !== sku);
+      }
+      renderCart();
+    }
+
+    function clearCart() {
+      cart = [];
+      renderCart();
+    }
+
+    // แสดงผลตะกร้า
+    function renderCart() {
+      const list = document.getElementById('cartList');
+      const countEl = document.getElementById('cartCount');
+      const totalEl = document.getElementById('cartTotal');
+
+      const totalQty = cart.reduce((sum, i) => sum + i.qty, 0);
+      const totalPrice = cart.reduce((sum, i) => sum + (i.price * i.qty), 0);
+
+      countEl.textContent = totalQty;
+      totalEl.textContent = totalPrice.toLocaleString('th-TH', { minimumFractionDigits: 2 }) + ' ฿';
+
+      if (cart.length === 0) {
+        list.innerHTML = '<p class="text-center text-xs text-slate-400 py-8">ยังไม่มีสินค้าในตะกร้า</p>';
+        return;
+      }
+
+      list.innerHTML = cart.map(item => `
+        <div class="py-2.5 flex items-center justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-medium text-slate-800 truncate">${item.product_name}</div>
+            <div class="text-xs text-slate-400">${item.price.toLocaleString()} ฿ × ${item.qty} = <b class="text-slate-700">${(item.price * item.qty).toLocaleString()} ฿</b></div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button onclick="updateQty('${item.sku}', -1)" class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 font-bold text-slate-700">-</button>
+            <span class="w-7 text-center text-sm font-semibold">${item.qty}</span>
+            <button onclick="updateQty('${item.sku}', 1)" class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 font-bold text-slate-700">+</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // ส่งข้อมูลไปบันทึกที่ Google Apps Script
+    async function submitTransaction() {
+      if (cart.length === 0) {
+        Swal.fire('ตะกร้าว่าง', 'กรุณาเลือกสินค้าอย่างน้อย 1 รายการ', 'info');
+        return;
+      }
+
+      const note = document.getElementById('noteInput').value.trim() || (currentMode === 'ขายออก' ? 'ลูกค้าหน้าร้าน' : 'รับสินค้าเข้าสต็อก');
+
+      Swal.fire({
+        title: `กำลังบันทึก${currentMode}...`,
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      try {
+        const payload = {
+          type: currentMode,
+          note: note,
+          items: cart.map(i => ({ sku: i.sku, qty: i.qty }))
+        };
+
+        // ใช้ text/plain เพื่อเลี่ยง CORS Preflight ของ Google Apps Script
+        const res = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payload)
+        });
+
+        const json = await res.json();
+        if (json.status === 'success') {
+          Swal.fire({
+            icon: 'success',
+            title: 'บันทึกสำเร็จ!',
+            text: json.message,
+            timer: 1800,
+            showConfirmButton: false
+          });
+          cart = [];
+          document.getElementById('noteInput').value = '';
+          renderCart();
+          loadProducts(); // รีโหลดสต็อกล่าสุดทันที
+        } else {
+          throw new Error(json.message || 'บันทึกไม่สำเร็จ');
+        }
+      } catch (err) {
+        Swal.fire('เกิดข้อผิดพลาด', err.message, 'error');
+      }
+    }
+
+    // =========================================================================
+    // ระบบสแกนบาร์โค้ดด้วยกล้องมือถือ
+    // =========================================================================
+    function toggleScanner() {
+      if (isScanning) {
+        stopScanner();
+      } else {
+        startScanner();
+      }
+    }
+
+    function startScanner() {
+      document.getElementById('scannerContainer').classList.remove('hidden');
+      html5QrCode = new Html5Qrcode('reader');
+      html5QrCode.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 150 } },
+        (decodedText) => {
+          const now = Date.now();
+          if (now - lastScanTime < 1500) return; // กันสแกนซ้ำติดกันเร็วเกินไป
+          lastScanTime = now;
+
+          addToCart(decodedText.trim());
+          Swal.fire({
+            toast: true,
+            position: 'top-end',
+            icon: 'success',
+            title: `สแกนแล้ว: ${decodedText}`,
+            showConfirmButton: false,
+            timer: 1200
+          });
+        },
+        () => {} // ข้าม error ระหว่างกำลังหาบาร์โค้ด
+      ).then(() => {
+        isScanning = true;
+      }).catch(err => {
+        document.getElementById('scannerContainer').classList.add('hidden');
+        Swal.fire('เปิดกล้องไม่สำเร็จ', 'กรุณาอนุญาตสิทธิ์การใช้กล้อง หรือเปิดผ่านลิงก์ HTTPS (GitHub Pages)', 'error');
+      });
+    }
+
+    function stopScanner() {
+      if (html5QrCode && isScanning) {
+        html5QrCode.stop().then(() => {
+          html5QrCode.clear();
+          isScanning = false;
+          document.getElementById('scannerContainer').classList.add('hidden');
+        });
+      } else {
+        document.getElementById('scannerContainer').classList.add('hidden');
+      }
+    }
+  </script>
+</body>
+</html>
