@@ -1,0 +1,1 @@
+# meiji-inventory-pos
